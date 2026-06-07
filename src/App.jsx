@@ -286,6 +286,7 @@ export default function App() {
   const payoutsPaid = payouts.filter(p => p.status === "Dibayarkan");
   const totalDibayarkan = payoutsPaid.reduce((s,p)=>s+p.komisiDibayar, 0);
   const debtPaid = payoutsPaid.reduce((s,p)=>s+p.cicilan, 0) + extraDebt.reduce((s,e)=>s+e.amount, 0);
+  const DEBT_TOTAL = 6000000;
   const debtLeft = Math.max(0, DEBT_TOTAL - debtPaid);
   const debtPct = Math.min(100, (debtPaid/DEBT_TOTAL)*100).toFixed(1);
   const totalSpend = metaData.reduce((s,r)=>s+parseNum(r["Jumlah yang dibelanjakan (IDR)"]), 0);
