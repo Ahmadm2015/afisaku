@@ -378,6 +378,7 @@ export default function App() {
   const [platFilter,setPlatFilter]=useState("");
 
   const showToast=useCallback((msg,type="success")=>{ const id=Date.now(); setToasts(t=>[...t,{id,msg,type}]); setTimeout(()=>setToasts(t=>t.filter(x=>x.id!==id)),3000); },[]);
+  const showSaveError=useCallback((label,e)=>{ console.error(e); showToast(`Gagal menyimpan ${label}. Cek koneksi lalu coba upload ulang.`,"err"); },[showToast]);
 
   useEffect(()=>{
     (async()=>{
@@ -463,39 +464,54 @@ export default function App() {
   // ── CSV HANDLERS ─────────────────────────────────────────────
   const handleMeta=async(file)=>{
     setUsMeta(`<div style="font-weight:700">⏳ Membaca ${file.name}...</div>`);
-    const rows=parseCSV(await file.text());
-    const existing=new Set(metaData.map(r=>r["Awal pelaporan"]+"|"+r["Nama kampanye"]));
-    let added=0;
-    const news=rows.filter(r=>{const k=r["Awal pelaporan"]+"|"+r["Nama kampanye"];if(!existing.has(k)){added++;return true;}return false;});
-    const next=[...metaData,...news];setMetaData(next);await dataSet("meta",next);
-    const spend=next.reduce((s,r)=>s+parseNum(r["Jumlah yang dibelanjakan (IDR)"]),0);
-    const days=[...new Set(next.map(r=>dateOnly(r["Awal pelaporan"])).filter(Boolean))];
-    setUsMeta(`<div style="font-weight:700;color:var(--green)">✅ ${file.name}</div><div class="ur"><span>Baris baru</span><span><strong>${added}</strong></span></div><div class="ur"><span>Total data</span><span><strong>${next.length} baris</strong></span></div><div class="ur"><span>Periode</span><span><strong>${days.length} hari</strong></span></div><div class="ur"><span>Total Spend</span><span><strong>${fmtRpFull(spend)}</strong></span></div>`);
-    showToast("✅ Data Meta Ads diupload!");
+    try{
+      const rows=parseCSV(await file.text());
+      const existing=new Set(metaData.map(r=>r["Awal pelaporan"]+"|"+r["Nama kampanye"]));
+      let added=0;
+      const news=rows.filter(r=>{const k=r["Awal pelaporan"]+"|"+r["Nama kampanye"];if(!existing.has(k)){added++;return true;}return false;});
+      const next=[...metaData,...news];await dataSet("meta",next);setMetaData(next);
+      const spend=next.reduce((s,r)=>s+parseNum(r["Jumlah yang dibelanjakan (IDR)"]),0);
+      const days=[...new Set(next.map(r=>dateOnly(r["Awal pelaporan"])).filter(Boolean))];
+      setUsMeta(`<div style="font-weight:700;color:var(--green)">✅ ${file.name}</div><div class="ur"><span>Baris baru</span><span><strong>${added}</strong></span></div><div class="ur"><span>Total data</span><span><strong>${next.length} baris</strong></span></div><div class="ur"><span>Periode</span><span><strong>${days.length} hari</strong></span></div><div class="ur"><span>Total Spend</span><span><strong>${fmtRpFull(spend)}</strong></span></div>`);
+      showToast("✅ Data Meta Ads diupload!");
+    }catch(e){
+      setUsMeta(`<div style="font-weight:700;color:var(--red)">Gagal menyimpan ${file.name}</div>`);
+      showSaveError("Data Meta Ads",e);
+    }
   };
   const handlePesanan=async(file)=>{
     setUsPesanan(`<div style="font-weight:700">⏳ Membaca ${file.name}...</div>`);
-    const rows=parseCSV(await file.text());
-    const existing=new Set(pesananData.map(r=>r["ID Pemesanan"]+"|"+r["ID Barang"]));
-    let added=0;
-    const news=rows.filter(r=>{const k=r["ID Pemesanan"]+"|"+r["ID Barang"];if(!existing.has(k)){added++;return true;}return false;});
-    const next=[...pesananData,...news];setPesananData(next);await dataSet("pesanan",next);
-    const komisi=next.reduce((s,r)=>s+parseNum(r["Komisi Bersih Affiliate (Rp)"]),0);
-    const days=[...new Set(next.map(r=>dateOnly(r["Waktu Pemesanan"])).filter(Boolean))];
-    setUsPesanan(`<div style="font-weight:700;color:var(--green)">✅ ${file.name}</div><div class="ur"><span>Pesanan baru</span><span><strong>${added}</strong></span></div><div class="ur"><span>Total tersimpan</span><span><strong>${next.length}</strong></span></div><div class="ur"><span>Periode</span><span><strong>${days.length} hari</strong></span></div><div class="ur"><span>Komisi Kotor</span><span><strong>${fmtRpFull(komisi)}</strong></span></div>`);
-    showToast("✅ Laporan Pesanan diupload!");
+    try{
+      const rows=parseCSV(await file.text());
+      const existing=new Set(pesananData.map(r=>r["ID Pemesanan"]+"|"+r["ID Barang"]));
+      let added=0;
+      const news=rows.filter(r=>{const k=r["ID Pemesanan"]+"|"+r["ID Barang"];if(!existing.has(k)){added++;return true;}return false;});
+      const next=[...pesananData,...news];await dataSet("pesanan",next);setPesananData(next);
+      const komisi=next.reduce((s,r)=>s+parseNum(r["Komisi Bersih Affiliate (Rp)"]),0);
+      const days=[...new Set(next.map(r=>dateOnly(r["Waktu Pemesanan"])).filter(Boolean))];
+      setUsPesanan(`<div style="font-weight:700;color:var(--green)">✅ ${file.name}</div><div class="ur"><span>Pesanan baru</span><span><strong>${added}</strong></span></div><div class="ur"><span>Total tersimpan</span><span><strong>${next.length}</strong></span></div><div class="ur"><span>Periode</span><span><strong>${days.length} hari</strong></span></div><div class="ur"><span>Komisi Kotor</span><span><strong>${fmtRpFull(komisi)}</strong></span></div>`);
+      showToast("✅ Laporan Pesanan diupload!");
+    }catch(e){
+      setUsPesanan(`<div style="font-weight:700;color:var(--red)">Gagal menyimpan ${file.name}</div>`);
+      showSaveError("Laporan Pesanan",e);
+    }
   };
   const handleClicks=async(file)=>{
     setUsClicks(`<div style="font-weight:700">⏳ Membaca ${file.name}...</div>`);
-    const rows=parseCSV(await file.text());
-    const existing=new Set(clicksData.map(r=>r["Klik ID"]));
-    let added=0;
-    const news=rows.filter(r=>{if(!existing.has(r["Klik ID"])){added++;return true;}return false;});
-    const next=[...clicksData,...news];setClicksData(next);await dataSet("clicks",next);
-    const byP=next.reduce((acc,r)=>{const p=r["Perujuk"]||"Others";acc[p]=(acc[p]||0)+1;return acc;},{});
-    const platRows=Object.entries(byP).map(([p,c])=>`<div class="ur"><span>${p}</span><span><strong>${c.toLocaleString("id-ID")}</strong></span></div>`).join("");
-    setUsClicks(`<div style="font-weight:700;color:var(--green)">✅ ${file.name}</div><div class="ur"><span>Klik baru</span><span><strong>${added}</strong></span></div><div class="ur"><span>Total tersimpan</span><span><strong>${next.length.toLocaleString("id-ID")}</strong></span></div>${platRows}`);
-    showToast("✅ Shopee Clicks diupload!");
+    try{
+      const rows=parseCSV(await file.text());
+      const existing=new Set(clicksData.map(r=>r["Klik ID"]));
+      let added=0;
+      const news=rows.filter(r=>{if(!existing.has(r["Klik ID"])){added++;return true;}return false;});
+      const next=[...clicksData,...news];await dataSet("clicks",next);setClicksData(next);
+      const byP=next.reduce((acc,r)=>{const p=r["Perujuk"]||"Others";acc[p]=(acc[p]||0)+1;return acc;},{});
+      const platRows=Object.entries(byP).map(([p,c])=>`<div class="ur"><span>${p}</span><span><strong>${c.toLocaleString("id-ID")}</strong></span></div>`).join("");
+      setUsClicks(`<div style="font-weight:700;color:var(--green)">✅ ${file.name}</div><div class="ur"><span>Klik baru</span><span><strong>${added}</strong></span></div><div class="ur"><span>Total tersimpan</span><span><strong>${next.length.toLocaleString("id-ID")}</strong></span></div>${platRows}`);
+      showToast("✅ Shopee Clicks diupload!");
+    }catch(e){
+      setUsClicks(`<div style="font-weight:700;color:var(--red)">Gagal menyimpan ${file.name}</div>`);
+      showSaveError("Shopee Clicks",e);
+    }
   };
 
   const handlePaste=()=>{
