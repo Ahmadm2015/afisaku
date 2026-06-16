@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app'
-import { getFirestore, doc, getDoc, setDoc, getDocs, collection, writeBatch, deleteDoc, query, where } from 'firebase/firestore'
+import { getFirestore, doc, getDoc, writeBatch, deleteDoc } from 'firebase/firestore'
 
 const firebaseConfig = {
   apiKey: "AIzaSyBm72AIbQdpmDcuqvl1v0UgcVpep7IgmvY",
@@ -16,26 +16,69 @@ export const db = getFirestore(app)
 
 const COLLECTION = 'afisaku_data'
 const CHUNK_SIZE = 200 // max rows per Firestore document (~safe under 1MB)
+const MAX_CHUNK_BYTES = 650_000
+const MAX_BATCH_WRITES = 450
+
+function estimateBytes(value) {
+  return new TextEncoder().encode(JSON.stringify(value)).length
+}
+
+function chunkRows(rows) {
+  const chunks = []
+  let current = []
+  let currentBytes = 0
+
+  for (const row of rows) {
+    const rowBytes = estimateBytes(row)
+    if (current.length && (current.length >= CHUNK_SIZE || currentBytes + rowBytes > MAX_CHUNK_BYTES)) {
+      chunks.push(current)
+      current = []
+      currentBytes = 0
+    }
+    current.push(row)
+    currentBytes += rowBytes
+  }
+
+  if (current.length) chunks.push(current)
+  return chunks
+}
+
+async function commitBatch(writes) {
+  if (!writes.length) return
+  const batch = writeBatch(db)
+  writes.forEach((write) => write(batch))
+  await batch.commit()
+}
 
 // ── CHUNKED GET ─────────────────────────────────────────────────
-// Reads all chunks: key_0, key_1, key_2, ... until no more found
+// Reads the first chunk, then loads known remaining chunks in parallel.
 export async function dataGet(key) {
   try {
+    const firstSnap = await getDoc(doc(db, COLLECTION, `${key}_0`))
     const results = []
-    let i = 0
-    while (true) {
-      const snap = await getDoc(doc(db, COLLECTION, `${key}_${i}`))
-      if (!snap.exists()) break
-      const items = snap.data().items || []
-      results.push(...items)
-      i++
-      if (items.length < CHUNK_SIZE) break // last chunk
+
+    if (firstSnap.exists()) {
+      const first = firstSnap.data()
+      const totalChunks = first.totalChunks || 1
+      results.push(...(first.items || []))
+
+      if (totalChunks > 1) {
+        const reads = []
+        for (let i = 1; i < totalChunks; i++) {
+          reads.push(getDoc(doc(db, COLLECTION, `${key}_${i}`)))
+        }
+        const snaps = await Promise.all(reads)
+        snaps.forEach((snap) => {
+          if (snap.exists()) results.push(...(snap.data().items || []))
+        })
+      }
+
+      return results
     }
+
     // Fallback: try old single-doc format for backward compat
-    if (results.length === 0) {
-      const snap = await getDoc(doc(db, COLLECTION, key))
-      if (snap.exists()) return snap.data().items || []
-    }
+    const snap = await getDoc(doc(db, COLLECTION, key))
+    if (snap.exists()) return snap.data().items || []
     return results
   } catch (e) {
     console.error('dataGet error:', e)
@@ -47,24 +90,22 @@ export async function dataGet(key) {
 // Splits array into chunks and writes each as separate document
 export async function dataSet(key, val) {
   try {
-    const chunks = []
-    for (let i = 0; i < val.length; i += CHUNK_SIZE) {
-      chunks.push(val.slice(i, i + CHUNK_SIZE))
-    }
+    const chunks = chunkRows(val)
+    const updatedAt = new Date().toISOString()
 
-    // Write all chunks
-    const batch = writeBatch(db)
-    chunks.forEach((chunk, i) => {
-      batch.set(doc(db, COLLECTION, `${key}_${i}`), {
-        items: chunk,
-        chunkIndex: i,
-        totalChunks: chunks.length,
-        updatedAt: new Date().toISOString()
+    for (let start = 0; start < chunks.length; start += MAX_BATCH_WRITES) {
+      const writes = chunks.slice(start, start + MAX_BATCH_WRITES).map((chunk, offset) => (batch) => {
+        const i = start + offset
+        batch.set(doc(db, COLLECTION, `${key}_${i}`), {
+          key,
+          items: chunk,
+          chunkIndex: i,
+          totalChunks: chunks.length,
+          updatedAt
+        })
       })
-    })
-
-    // Delete any old extra chunks (if new data is smaller)
-    await batch.commit()
+      await commitBatch(writes)
+    }
 
     // Clean up leftover chunks from previous larger upload
     let i = chunks.length
@@ -81,5 +122,6 @@ export async function dataSet(key, val) {
 
   } catch (e) {
     console.error('dataSet error:', e)
+    throw e
   }
 }
