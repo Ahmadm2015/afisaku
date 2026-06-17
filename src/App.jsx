@@ -17,8 +17,8 @@ const parseNum = (v) => {
   if(/^\d{1,3}(\.\d{3})+$/.test(s))return parseFloat(s.replace(/\./g,""))||0;
   return parseFloat(s.replace(/[^\d.-]/g,""))||0;
 };
-const normTag = (v) => (v || "").toString().trim().replace(/^#/, "").toLowerCase();
-const cleanTag = (v) => (v || "").toString().trim().replace(/^#/, "");
+const cleanTag = (v) => (v || "").toString().trim().replace(/^#/, "").replace(/-+$/, "");
+const normTag = (v) => cleanTag(v).toLowerCase();
 const getRowTag = (r) => r["Tag_link1"] || r["Tag_link"] || r["Tag Link"] || r["Tag link"] || r["Tag"] || r["tag"] || "";
 const sameTag = (a,b) => normTag(a) === normTag(b);
 const today = () => new Date().toISOString().substring(0,10);
@@ -840,9 +840,7 @@ export default function App() {
 
         {/* ══ TAG PERFORMA ══ */}
         {tab==="tagperforma" && (()=>{
-          const tagMap=new Map();
-          [...pesananData.map(getRowTag),...clicksData.map(getRowTag)].map(cleanTag).filter(Boolean).forEach(t=>{if(!tagMap.has(normTag(t)))tagMap.set(normTag(t),t);});
-          const allTagsList=[...tagMap.values()].sort();
+          const allTagsList=[...new Set(pesananData.map(r=>cleanTag(getRowTag(r))).filter(Boolean))].sort();
           const allCampaigns=[...new Set(metaData.map(r=>r["Nama kampanye"]).filter(Boolean))].sort();
           const activeTags=selectedTags.length>0?selectedTags:[];
 
