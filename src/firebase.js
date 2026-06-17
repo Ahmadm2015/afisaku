@@ -16,8 +16,9 @@ export const db = getFirestore(app)
 
 const COLLECTION = 'afisaku_data'
 const CHUNK_SIZE = 200 // max rows per Firestore document (~safe under 1MB)
-const MAX_CHUNK_BYTES = 650_000
-const MAX_BATCH_WRITES = 450
+const MAX_CHUNK_BYTES = 500_000
+const MAX_BATCH_WRITES = 40
+const MAX_BATCH_BYTES = 7_500_000
 
 function estimateBytes(value) {
   return new TextEncoder().encode(JSON.stringify(value)).length
@@ -46,7 +47,7 @@ function chunkRows(rows) {
 async function commitBatch(writes) {
   if (!writes.length) return
   const batch = writeBatch(db)
-  writes.forEach((write) => write(batch))
+  writes.forEach(({ apply }) => apply(batch))
   await batch.commit()
 }
 
@@ -93,19 +94,34 @@ export async function dataSet(key, val) {
     const chunks = chunkRows(val)
     const updatedAt = new Date().toISOString()
 
-    for (let start = 0; start < chunks.length; start += MAX_BATCH_WRITES) {
-      const writes = chunks.slice(start, start + MAX_BATCH_WRITES).map((chunk, offset) => (batch) => {
-        const i = start + offset
-        batch.set(doc(db, COLLECTION, `${key}_${i}`), {
+    let pendingWrites = []
+    let pendingBytes = 0
+
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i]
+      const payload = {
           key,
           items: chunk,
           chunkIndex: i,
           totalChunks: chunks.length,
           updatedAt
-        })
+        }
+      const payloadBytes = estimateBytes(payload)
+
+      if (pendingWrites.length && (pendingWrites.length >= MAX_BATCH_WRITES || pendingBytes + payloadBytes > MAX_BATCH_BYTES)) {
+        await commitBatch(pendingWrites)
+        pendingWrites = []
+        pendingBytes = 0
+      }
+
+      pendingWrites.push({
+        bytes: payloadBytes,
+        apply: (batch) => batch.set(doc(db, COLLECTION, `${key}_${i}`), payload)
       })
-      await commitBatch(writes)
+      pendingBytes += payloadBytes
     }
+
+    await commitBatch(pendingWrites)
 
     // Clean up leftover chunks from previous larger upload
     let i = chunks.length
