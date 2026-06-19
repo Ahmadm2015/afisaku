@@ -2,6 +2,10 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { dataGet, dataSet } from "./firebase.js";
 
 const DEBT_TOTAL = 6_000_000;
+const ACCOUNTS = [
+  { id:"utama", label:"Shopee Utama", prefix:"" },
+  { id:"akun2", label:"Shopee Kedua", prefix:"akun2_" },
+];
 
 const fmtRp = (n) => { n = Math.round(n || 0); if (n >= 1_000_000) return "Rp " + (n/1_000_000).toFixed(n%1_000_000===0?0:1) + " Jt"; if (n >= 1_000) return "Rp " + n.toLocaleString("id-ID"); return "Rp " + n; };
 const fmtRpFull = (n) => "Rp " + Math.round(n || 0).toLocaleString("id-ID");
@@ -107,6 +111,9 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
 .hdr-stat{text-align:right;}
 .hdr-stat .hl{font-size:.65rem;color:var(--text3);font-weight:500;}
 .hdr-stat .hv{font-size:.9rem;font-weight:800;letter-spacing:-.3px;}
+.acct-select{padding:7px 10px;border-radius:9px;border:1px solid var(--border);background:var(--surface2);color:var(--text2);font-family:inherit;font-size:.74rem;font-weight:700;outline:none;cursor:pointer;}
+.acct-select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(249,115,22,.12);}
+.sync-badge{font-size:.66rem;font-weight:700;color:var(--blue);background:var(--blue-l);border-radius:99px;padding:4px 9px;white-space:nowrap;}
 
 /* NAV */
 nav{background:var(--surface);border-bottom:1px solid var(--border);padding:0 16px;display:flex;overflow-x:auto;scrollbar-width:none;gap:2px;}
@@ -355,6 +362,8 @@ const DailyChart = ({days,metaByDay,pesananByDay}) => {
 export default function App() {
   const [tab,setTab]=useState("dashboard");
   const [loading,setLoading]=useState(true);
+  const [clicksLoading,setClicksLoading]=useState(false);
+  const [activeAccountId,setActiveAccountId]=useState(()=>{const saved=localStorage.getItem("afisaku_active_account");return ACCOUNTS.some(a=>a.id===saved)?saved:"utama";});
   const [toasts,setToasts]=useState([]);
   const [metaData,setMetaData]=useState([]);
   const [pesananData,setPesananData]=useState([]);
@@ -383,16 +392,42 @@ export default function App() {
 
   const showToast=useCallback((msg,type="success")=>{ const id=Date.now(); setToasts(t=>[...t,{id,msg,type}]); setTimeout(()=>setToasts(t=>t.filter(x=>x.id!==id)),3000); },[]);
   const showSaveError=useCallback((label,e)=>{ console.error(e); showToast(`Gagal menyimpan ${label}. Cek koneksi lalu coba upload ulang.`,"err"); },[showToast]);
+  const activeAccount=ACCOUNTS.find(a=>a.id===activeAccountId)||ACCOUNTS[0];
+  const dataKey=useCallback((key)=>`${activeAccount.prefix}${key}`,[activeAccount.prefix]);
 
   useEffect(()=>{
+    localStorage.setItem("afisaku_active_account",activeAccountId);
+  },[activeAccountId]);
+
+  useEffect(()=>{
+    let cancelled=false;
     (async()=>{
       setLoading(true);
-      const[m,p,c,po,ed,tm]=await Promise.all([dataGet("meta"),dataGet("pesanan"),dataGet("clicks"),dataGet("payouts"),dataGet("extraDebt"),dataGet("tagMappings")]);
-      setMetaData(m);setPesananData(p);setClicksData(c);setPayouts(po);setExtraDebt(ed);
-      setTagMappings(tm[0]||{});
-      setLoading(false);
+      setClicksLoading(false);
+      setMetaData([]);setPesananData([]);setClicksData([]);setPayouts([]);setExtraDebt([]);setTagMappings({});
+      setSelectedTags([]);setSelectedMonth("");setPasteText("");setPasteResult(null);
+      setUsMeta("");setUsPesanan("");setUsClicks("");
+      try{
+        const[m,p,po,ed,tm]=await Promise.all([dataGet(dataKey("meta")),dataGet(dataKey("pesanan")),dataGet(dataKey("payouts")),dataGet(dataKey("extraDebt")),dataGet(dataKey("tagMappings"))]);
+        if(cancelled)return;
+        setMetaData(m);setPesananData(p);setPayouts(po);setExtraDebt(ed);setTagMappings(tm[0]||{});
+        setLoading(false);
+        setClicksLoading(true);
+        const c=await dataGet(dataKey("clicks"));
+        if(cancelled)return;
+        setClicksData(c);
+        setClicksLoading(false);
+      }catch(e){
+        if(!cancelled){
+          console.error(e);
+          setLoading(false);
+          setClicksLoading(false);
+          showToast("Gagal memuat data akun. Coba refresh.","err");
+        }
+      }
     })();
-  },[]);
+    return()=>{cancelled=true;};
+  },[dataKey,showToast]);
 
   // ── DATE FILTER HELPER ────────────────────────────────────────
   const inDateRange = (iso) => {
@@ -473,7 +508,7 @@ export default function App() {
       const existing=new Set(metaData.map(r=>r["Awal pelaporan"]+"|"+r["Nama kampanye"]));
       let added=0;
       const news=rows.filter(r=>{const k=r["Awal pelaporan"]+"|"+r["Nama kampanye"];if(!existing.has(k)){added++;return true;}return false;});
-      const next=[...metaData,...news];await dataSet("meta",next);setMetaData(next);
+      const next=[...metaData,...news];await dataSet(dataKey("meta"),next);setMetaData(next);
       const spend=next.reduce((s,r)=>s+parseNum(r["Jumlah yang dibelanjakan (IDR)"]),0);
       const days=[...new Set(next.map(r=>dateOnly(r["Awal pelaporan"])).filter(Boolean))];
       setUsMeta(`<div style="font-weight:700;color:var(--green)">✅ ${file.name}</div><div class="ur"><span>Baris baru</span><span><strong>${added}</strong></span></div><div class="ur"><span>Total data</span><span><strong>${next.length} baris</strong></span></div><div class="ur"><span>Periode</span><span><strong>${days.length} hari</strong></span></div><div class="ur"><span>Total Spend</span><span><strong>${fmtRpFull(spend)}</strong></span></div>`);
@@ -490,7 +525,7 @@ export default function App() {
       const existing=new Set(pesananData.map(r=>r["ID Pemesanan"]+"|"+r["ID Barang"]));
       let added=0;
       const news=rows.filter(r=>{const k=r["ID Pemesanan"]+"|"+r["ID Barang"];if(!existing.has(k)){added++;return true;}return false;});
-      const next=[...pesananData,...news];await dataSet("pesanan",next);setPesananData(next);
+      const next=[...pesananData,...news];await dataSet(dataKey("pesanan"),next);setPesananData(next);
       const komisi=next.reduce((s,r)=>s+parseNum(r["Komisi Bersih Affiliate (Rp)"]),0);
       const days=[...new Set(next.map(r=>dateOnly(r["Waktu Pemesanan"])).filter(Boolean))];
       setUsPesanan(`<div style="font-weight:700;color:var(--green)">✅ ${file.name}</div><div class="ur"><span>Pesanan baru</span><span><strong>${added}</strong></span></div><div class="ur"><span>Total tersimpan</span><span><strong>${next.length}</strong></span></div><div class="ur"><span>Periode</span><span><strong>${days.length} hari</strong></span></div><div class="ur"><span>Komisi Kotor</span><span><strong>${fmtRpFull(komisi)}</strong></span></div>`);
@@ -507,7 +542,7 @@ export default function App() {
       const existing=new Set(clicksData.map(r=>r["Klik ID"]));
       let added=0;
       const news=rows.filter(r=>{if(!existing.has(r["Klik ID"])){added++;return true;}return false;});
-      const next=[...clicksData,...news];await dataSet("clicks",next);setClicksData(next);
+      const next=[...clicksData,...news];await dataSet(dataKey("clicks"),next);setClicksData(next);
       const byP=next.reduce((acc,r)=>{const p=r["Perujuk"]||"Others";acc[p]=(acc[p]||0)+1;return acc;},{});
       const platRows=Object.entries(byP).map(([p,c])=>`<div class="ur"><span>${p}</span><span><strong>${c.toLocaleString("id-ID")}</strong></span></div>`).join("");
       setUsClicks(`<div style="font-weight:700;color:var(--green)">✅ ${file.name}</div><div class="ur"><span>Klik baru</span><span><strong>${added}</strong></span></div><div class="ur"><span>Total tersimpan</span><span><strong>${next.length.toLocaleString("id-ID")}</strong></span></div>${platRows}`);
@@ -530,26 +565,24 @@ export default function App() {
     const news=pasteResult.filter(p=>!existing.has(p.id));
     if(!news.length){showToast("Semua sudah tersimpan.","warn");return;}
     const next=[...news,...payouts].sort((a,b)=>b.terbitDate.localeCompare(a.terbitDate));
-    setPayouts(next);await dataSet("payouts",next);
+    setPayouts(next);await dataSet(dataKey("payouts"),next);
     setPasteText("");setPasteResult(null);
     showToast(`✅ ${news.length} laporan disimpan!`);
   };
-  const deletePayout=async(id)=>{const next=payouts.filter(p=>p.id!==id);setPayouts(next);await dataSet("payouts",next);showToast("Dihapus","warn");};
+  const deletePayout=async(id)=>{const next=payouts.filter(p=>p.id!==id);setPayouts(next);await dataSet(dataKey("payouts"),next);showToast("Dihapus","warn");};
   const saveTagMappings=async(newMappings)=>{
     setTagMappings(newMappings);
-    await dataSet("tagMappings",[newMappings]);
+    await dataSet(dataKey("tagMappings"),[newMappings]);
   };
 
   const addExtraDebtFn=async()=>{
     const amt=parseFloat(extraAmt);if(!amt||amt<=0){showToast("Masukkan jumlah!","warn");return;}
     const next=[...extraDebt,{id:Date.now().toString(),date:new Date().toISOString().substring(0,10),amount:amt,note:extraNote}];
-    setExtraDebt(next);await dataSet("extraDebt",next);setExtraAmt("");setExtraNote("");showToast("✅ Cicilan dicatat!");
+    setExtraDebt(next);await dataSet(dataKey("extraDebt"),next);setExtraAmt("");setExtraNote("");showToast("✅ Cicilan dicatat!");
   };
 
   const DATE_FILTERS=[{k:"today",l:"Hari Ini"},{k:"yesterday",l:"Kemarin"},{k:"7d",l:"7 Hari"},{k:"30d",l:"30 Hari"},{k:"range",l:"📅 Pilih Range"},{k:"all",l:"Semua"}];
   const TABS=[{id:"dashboard",label:"📊 Dashboard"},{id:"pembayaran",label:"💰 Lap. Pembayaran"},{id:"upload",label:"📂 Upload CSV"},{id:"perhari",label:"📆 Per Hari"},{id:"tagperforma",label:"🏷️ Tag Performa"},{id:"pesanan",label:"🧾 Pesanan"},{id:"kampanye",label:"📣 Kampanye"},{id:"monthly",label:"📅 Bulanan"},{id:"debt",label:"💳 Hutang"}];
-
-  if(loading) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",flexDirection:"column",gap:12,color:"#94a3b8",fontFamily:"'Plus Jakarta Sans',sans-serif"}}><div style={{fontSize:"2.5rem"}}>🛍️</div><div style={{fontWeight:700,fontSize:".95rem"}}>Memuat data...</div></div>;
 
   return (
     <div className="app">
@@ -561,6 +594,10 @@ export default function App() {
             <div><h1>Afisaku</h1><span>Shopee Affiliate Tracker</span></div>
           </div>
           <div className="hdr-right">
+            <select className="acct-select" value={activeAccountId} onChange={e=>setActiveAccountId(e.target.value)} title="Pilih akun data">
+              {ACCOUNTS.map(a=><option key={a.id} value={a.id}>{a.label}</option>)}
+            </select>
+            {(loading||clicksLoading)&&<span className="sync-badge">{loading?"Memuat...":"Memuat klik..."}</span>}
             <div className="hdr-stat"><div className="hl">Komisi Kotor</div><div className="hv" style={{color:"var(--green)"}}>{fmtRp(pesananData.reduce((s,r)=>s+parseNum(r["Komisi Bersih Affiliate (Rp)"]),0))}</div></div>
             <div className="hdr-stat"><div className="hl">Sisa Hutang</div><div className="hv" style={{color:"var(--accent)"}}>{fmtRpFull(debtLeft)}</div></div>
           </div>
@@ -734,7 +771,7 @@ export default function App() {
                   {item.data.length>0 && (
                     <button className="btn-d" onClick={async()=>{
                       if(!confirm(`Hapus SEMUA data ${item.label}? (${item.data.length.toLocaleString("id-ID")} baris)`))return;
-                      item.setData([]);item.setStatus("");await dataSet(item.key,[]);
+                      item.setData([]);item.setStatus("");await dataSet(dataKey(item.key),[]);
                       showToast(`Semua data ${item.label} dihapus`,"warn");
                     }}>🗑 Hapus Semua ({item.data.length.toLocaleString("id-ID")})</button>
                   )}
@@ -754,7 +791,7 @@ export default function App() {
                           <button onClick={async()=>{
                             if(!confirm(`Hapus data ${item.label} tanggal ${fmtDate(d)}? (${countByDay[d]} baris)`))return;
                             const next=item.data.filter(r=>dateOnly(r[item.dateKey])!==d);
-                            item.setData(next);await dataSet(item.key,next);
+                            item.setData(next);await dataSet(dataKey(item.key),next);
                             showToast(`Data ${fmtDate(d)} dihapus`,"warn");
                           }} style={{background:"none",border:"1px solid #fca5a5",borderRadius:5,padding:"3px 8px",color:"var(--red)",fontSize:".68rem",fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
                             🗑
