@@ -936,7 +936,7 @@ export default function App() {
 
                   {/* Metrics */}
                   <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:14}}>
-                    {[["Klik Meta",ts.metaClicks.toLocaleString("id-ID"),"var(--blue)"],["Klik Shopee",ts.shopeeClicks.toLocaleString("id-ID"),"var(--blue)"],["Meta→Shopee",ts.ctr?ts.ctr+"%":"-","var(--yellow)"],["Pesanan",ts.pesananCount,"var(--purple)"],["Komisi Kotor",fmtRp(ts.komisi),"var(--green)"],["Ad Spend",ts.spend>0?fmtRp(ts.spend):"-","var(--red)"],["Profit Bersih",ts.spend>0?fmtRp(ts.profit):"-",ts.profit>=0?"var(--green)":"var(--red)"],["ROI",ts.roi?ts.roi+"%":"-",parseFloat(ts.roi)>=0?"var(--green)":"var(--red)"]].map(([l,v,c])=>(
+                    {[["Ad Spend",ts.spend>0?fmtRp(ts.spend):"-","var(--red)"],["Klik Meta",ts.metaClicks.toLocaleString("id-ID"),"var(--blue)"],["Meta→Shopee",ts.ctr?ts.ctr+"%":"-","var(--yellow)"],["Klik Shopee",ts.shopeeClicks.toLocaleString("id-ID"),"var(--blue)"],["Pesanan",ts.pesananCount,"var(--purple)"],["Komisi Kotor",fmtRp(ts.komisi),"var(--green)"],["Profit Bersih",ts.spend>0?fmtRp(ts.profit):"-",ts.profit>=0?"var(--green)":"var(--red)"],["ROAS",ts.roas?ts.roas+"x":"-",(ts.roas&&parseFloat(ts.roas)>=1)?"var(--green)":"var(--red)"]].map(([l,v,c])=>(
                       <div key={l} style={{background:"var(--surface2)",borderRadius:9,padding:"9px 10px",textAlign:"center"}}>
                         <div style={{fontSize:".62rem",color:"var(--text3)",fontWeight:600,marginBottom:3}}>{l}</div>
                         <div style={{fontWeight:800,fontSize:".88rem",color:c,fontFamily:"'DM Mono',monospace"}}>{v}</div>
@@ -978,7 +978,7 @@ export default function App() {
                       <table style={{width:"100%",borderCollapse:"collapse",fontSize:".72rem"}}>
                         <thead>
                           <tr style={{borderBottom:"1px solid var(--border)"}}>
-                            {["Tanggal","Spend","Komisi","Klik Meta","Klik Shopee","Meta→Shopee","Pesanan","ROAS Hari","Profit Hari"].map(h=><th key={h} style={{padding:"5px 8px",textAlign:h==="Tanggal"?"left":"right",color:"var(--text3)",fontWeight:700,fontSize:".62rem",textTransform:"uppercase",letterSpacing:".4px",whiteSpace:"nowrap"}}>{h}</th>)}
+                            {["Tanggal","Spend","Klik Meta","Meta→Shopee","Klik Shopee","Pesanan","Komisi","Profit Hari","ROAS Hari"].map(h=><th key={h} style={{padding:"5px 8px",textAlign:h==="Tanggal"?"left":"right",color:"var(--text3)",fontWeight:700,fontSize:".62rem",textTransform:"uppercase",letterSpacing:".4px",whiteSpace:"nowrap"}}>{h}</th>)}
                           </tr>
                         </thead>
                         <tbody>
@@ -986,15 +986,15 @@ export default function App() {
                             <tr key={d} style={{borderBottom:"1px solid rgba(228,232,242,.5)"}}>
                               <td style={{padding:"6px 8px",fontWeight:700,whiteSpace:"nowrap"}}>{fmtDate(d)}</td>
                               <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"'DM Mono',monospace",color:"var(--red)"}}>{dSpend>0?fmtRp(dSpend):"-"}</td>
-                              <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"'DM Mono',monospace",color:"var(--green)"}}>{dKomisi>0?fmtRp(dKomisi):"-"}</td>
                               <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"'DM Mono',monospace",color:"var(--blue)"}}>{dMetaClicks>0?dMetaClicks.toLocaleString("id-ID"):"-"}</td>
-                              <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"'DM Mono',monospace",color:"var(--blue)"}}>{dClicks>0?dClicks.toLocaleString("id-ID"):"-"}</td>
                               <td style={{padding:"6px 8px",textAlign:"right"}}>{dCtr?<span className={`badge ${parseFloat(dCtr)>=50?"bg-green":parseFloat(dCtr)>=20?"bg-yellow":"bg-red"}`}>{dCtr}%</span>:"-"}</td>
+                              <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"'DM Mono',monospace",color:"var(--blue)"}}>{dClicks>0?dClicks.toLocaleString("id-ID"):"-"}</td>
                               <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"'DM Mono',monospace"}}>{dPesanan>0?dPesanan:"-"}</td>
+                              <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"'DM Mono',monospace",color:"var(--green)"}}>{dKomisi>0?fmtRp(dKomisi):"-"}</td>
+                              <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"'DM Mono',monospace",fontWeight:700,color:dProfit>=0?"var(--green)":"var(--red)"}}>{dSpend>0?fmtRp(dProfit):"-"}</td>
                               <td style={{padding:"6px 8px",textAlign:"right"}}>
                                 {dRoas?<span style={{fontFamily:"'DM Mono',monospace",fontWeight:800,color:parseFloat(dRoas)>=1?"var(--green)":"var(--red)",background:parseFloat(dRoas)>=1?"var(--green-l)":"var(--red-l)",padding:"2px 7px",borderRadius:99,fontSize:".7rem"}}>{dRoas}x</span>:"-"}
                               </td>
-                              <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"'DM Mono',monospace",fontWeight:700,color:dProfit>=0?"var(--green)":"var(--red)"}}>{dSpend>0?fmtRp(dProfit):"-"}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1034,17 +1034,17 @@ export default function App() {
               <div className="ct">Perbandingan Semua Tag</div>
               <div className="table-wrap">
                 <table className="dt">
-                  <thead><tr><th>Tag</th><th>Klik Meta</th><th>Klik Shopee</th><th>Meta→Shopee</th><th>Pesanan</th><th>Komisi Kotor</th><th>Spend</th><th>Profit</th><th>ROAS</th></tr></thead>
+                  <thead><tr><th>Tag</th><th>Spend</th><th>Klik Meta</th><th>Meta→Shopee</th><th>Klik Shopee</th><th>Pesanan</th><th>Komisi Kotor</th><th>Profit</th><th>ROAS</th></tr></thead>
                   <tbody>{allTagsList.map(tag=>{
-                    const ts=computeTagStats(tag);
-                    return <tr key={tag} style={{cursor:"pointer"}} onClick={()=>{if(!selectedTags.includes(tag))setSelectedTags(p=>[...p,tag]);}}>
-                      <td style={{fontWeight:700,color:"var(--accent)"}}>{tag}</td>
+                      const ts=computeTagStats(tag);
+                      return <tr key={tag} style={{cursor:"pointer"}} onClick={()=>{if(!selectedTags.includes(tag))setSelectedTags(p=>[...p,tag]);}}>
+                        <td style={{fontWeight:700,color:"var(--accent)"}}>{tag}</td>
+                      <td className="num" style={{color:"var(--red)"}}>{ts.spend>0?fmtRp(ts.spend):"-"}</td>
                       <td className="num" style={{color:"var(--blue)"}}>{ts.metaClicks.toLocaleString("id-ID")}</td>
-                      <td className="num" style={{color:"var(--blue)"}}>{ts.shopeeClicks.toLocaleString("id-ID")}</td>
                       <td className="num">{ts.ctr?<span className={`badge ${parseFloat(ts.ctr)>=50?"bg-green":parseFloat(ts.ctr)>=20?"bg-yellow":"bg-red"}`}>{ts.ctr}%</span>:"-"}</td>
+                      <td className="num" style={{color:"var(--blue)"}}>{ts.shopeeClicks.toLocaleString("id-ID")}</td>
                       <td className="num">{ts.pesananCount}</td>
                       <td className="num" style={{color:"var(--green)"}}>{fmtRp(ts.komisi)}</td>
-                      <td className="num" style={{color:"var(--red)"}}>{ts.spend>0?fmtRp(ts.spend):"-"}</td>
                       <td className="num" style={{color:ts.profit>=0?"var(--green)":"var(--red)"}}>{ts.spend>0?fmtRp(ts.profit):"-"}</td>
                       <td className="num">{ts.roas?<span className={`badge ${parseFloat(ts.roas)>=1?"bg-green":"bg-red"}`}>{ts.roas}x</span>:"-"}</td>
                     </tr>;
