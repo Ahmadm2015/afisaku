@@ -387,6 +387,7 @@ export default function App() {
   const [pesananData,setPesananData]=useState([]);
   const [clicksData,setClicksData]=useState([]);
   const [payouts,setPayouts]=useState([]);
+  const [debtPayoutsByAccount,setDebtPayoutsByAccount]=useState({});
   const [extraDebt,setExtraDebt]=useState([]);
   const [tagMappings,setTagMappings]=useState({});
   const [selectedTags,setSelectedTags]=useState([]);
@@ -422,13 +423,23 @@ export default function App() {
     (async()=>{
       setLoading(true);
       setClicksLoading(false);
-      setMetaData([]);setPesananData([]);setClicksData([]);setPayouts([]);setExtraDebt([]);setTagMappings({});
+      setMetaData([]);setPesananData([]);setClicksData([]);setPayouts([]);setExtraDebt([]);setTagMappings({});setDebtPayoutsByAccount({});
       setSelectedTags([]);setSelectedMonth("");setPasteText("");setPasteResult(null);
       setUsMeta("");setUsPesanan("");setUsClicks("");
       try{
-        const[m,p,po,ed,tm]=await Promise.all([dataGet(dataKey("meta")),dataGet(dataKey("pesanan")),dataGet(dataKey("payouts")),dataGet(dataKey("extraDebt")),dataGet(dataKey("tagMappings"))]);
+        const[m,p,po,ed,tm,allPo,allEd]=await Promise.all([
+          dataGet(dataKey("meta")),
+          dataGet(dataKey("pesanan")),
+          dataGet(dataKey("payouts")),
+          dataGet("extraDebt"),
+          dataGet(dataKey("tagMappings")),
+          Promise.all(ACCOUNTS.map(a=>dataGet(`${a.prefix}payouts`))),
+          Promise.all(ACCOUNTS.map(a=>dataGet(`${a.prefix}extraDebt`)))
+        ]);
         if(cancelled)return;
-        setMetaData(m);setPesananData(p);setPayouts(po);setExtraDebt(ed);setTagMappings(tm[0]||{});
+        const mergedExtraDebt=[...ed,...allEd.flat()].filter((item,i,arr)=>arr.findIndex(x=>(x.id||`${x.date}-${x.amount}-${x.note}`)===(item.id||`${item.date}-${item.amount}-${item.note}`))===i);
+        setMetaData(m);setPesananData(p);setPayouts(po);setExtraDebt(mergedExtraDebt);setTagMappings(tm[0]||{});
+        setDebtPayoutsByAccount(Object.fromEntries(ACCOUNTS.map((a,i)=>[a.id,allPo[i]||[]])));
         setLoading(false);
         setClicksLoading(true);
         const c=await dataGet(dataKey("clicks"));
@@ -465,14 +476,23 @@ export default function App() {
   };
 
   // ── FILTERED DATA ─────────────────────────────────────────────
-  const filtMeta = metaData.filter(r=>inDateRange(r["Awal pelaporan"])&&(!platFilter));
-  const filtPesanan = pesananData.filter(r=>inDateRange(r["Waktu Pemesanan"])&&(!platFilter||r["Platform"]===platFilter));
-  const filtClicks = clicksData.filter(r=>inDateRange(r["Waktu Klik"])&&(!platFilter||r["Perujuk"]===platFilter));
+  const allDays=[...new Set([...metaData.map(r=>dateOnly(r["Awal pelaporan"])),...pesananData.map(r=>dateOnly(r["Waktu Pemesanan"])),...clicksData.map(r=>dateOnly(r["Waktu Klik"]))].filter(Boolean))].sort().reverse();
+  const allMonths=[...new Set([...allDays.map(d=>d.substring(0,7)),...payouts.map(p=>monthKey(p.terbitDate))].filter(Boolean))].sort().reverse();
+  const activeMonth=selectedMonth||allMonths[0]||"";
+  const allTags=[...new Set(pesananData.map(r=>r["Tag_link1"]).filter(Boolean))];
+  const monthMatches = (iso) => !activeMonth || monthKey(dateOnly(iso))===activeMonth;
+  const filtMeta = metaData.filter(r=>monthMatches(r["Awal pelaporan"])&&(!platFilter));
+  const filtPesanan = pesananData.filter(r=>monthMatches(r["Waktu Pemesanan"])&&(!platFilter||r["Platform"]===platFilter));
+  const filtClicks = clicksData.filter(r=>monthMatches(r["Waktu Klik"])&&(!platFilter||r["Perujuk"]===platFilter));
 
   // ── COMPUTED ─────────────────────────────────────────────────
+  const debtPayouts = Object.values(debtPayoutsByAccount).flat();
+  const debtPayoutItems = ACCOUNTS.flatMap(a=>(debtPayoutsByAccount[a.id]||[]).filter(p=>p.status==="Dibayarkan").map(p=>({date:p.terbitDate,amount:p.cicilan,source:"Payout "+a.label+" - "+fmtDate(p.terbitDate)})));
+  const debtHistoryItems = [...debtPayoutItems,...extraDebt.map(e=>({date:e.date,amount:e.amount,source:"Tambahan - "+(e.note||"Cicilan manual")}))].sort((a,b)=>b.date.localeCompare(a.date));
   const payoutsPaid = payouts.filter(p=>p.status==="Dibayarkan");
+  const debtPayoutsPaid = debtPayouts.filter(p=>p.status==="Dibayarkan");
   const totalDibayarkan = payoutsPaid.reduce((s,p)=>s+p.komisiDibayar,0);
-  const debtPaid = payoutsPaid.reduce((s,p)=>s+p.cicilan,0)+extraDebt.reduce((s,e)=>s+e.amount,0);
+  const debtPaid = debtPayoutsPaid.reduce((s,p)=>s+p.cicilan,0)+extraDebt.reduce((s,e)=>s+e.amount,0);
   const debtLeft = Math.max(0,DEBT_TOTAL-debtPaid);
   const debtPct = Math.min(100,(debtPaid/DEBT_TOTAL)*100).toFixed(1);
 
@@ -484,11 +504,7 @@ export default function App() {
   const roas = totalSpend>0?(komisiKotor/totalSpend).toFixed(2):null;
   const roi = totalSpend>0?((profitBersih/totalSpend)*100).toFixed(1):null;
 
-  const allDays=[...new Set([...metaData.map(r=>dateOnly(r["Awal pelaporan"])),...pesananData.map(r=>dateOnly(r["Waktu Pemesanan"])),...clicksData.map(r=>dateOnly(r["Waktu Klik"]))].filter(Boolean))].sort().reverse();
-  const allMonths=[...new Set([...allDays.map(d=>d.substring(0,7)),...payouts.map(p=>monthKey(p.terbitDate))].filter(Boolean))].sort().reverse();
-  const allTags=[...new Set(pesananData.map(r=>r["Tag_link1"]).filter(Boolean))];
-
-  const metaByDay={};metaData.filter(r=>inDateRange(r["Awal pelaporan"])).forEach(r=>{const d=dateOnly(r["Awal pelaporan"]);if(!d)return;if(!metaByDay[d])metaByDay[d]={spend:0,clicks:0};metaByDay[d].spend+=parseNum(r["Jumlah yang dibelanjakan (IDR)"]);
+  const metaByDay={};filtMeta.forEach(r=>{const d=dateOnly(r["Awal pelaporan"]);if(!d)return;if(!metaByDay[d])metaByDay[d]={spend:0,clicks:0};metaByDay[d].spend+=parseNum(r["Jumlah yang dibelanjakan (IDR)"]);
     const klikLangsung=parseNum(r["Klik tautan"]);
     if(klikLangsung>0){metaByDay[d].clicks+=klikLangsung;}
     else{const ctrPct=parseNum(r["CTR (rasio klik tayang tautan)"]);const impresi=parseNum(r["Impresi"]);if(ctrPct>0&&impresi>0)metaByDay[d].clicks+=Math.round(ctrPct/100*impresi);}
@@ -500,7 +516,6 @@ export default function App() {
   const filteredDays=[...new Set([...Object.keys(metaByDay),...Object.keys(pesananByDay),...Object.keys(clicksByDay)])].sort().reverse();
 
   // Monthly
-  const activeMonth=selectedMonth||allMonths[0]||"";
   const metaMonth=metaData.filter(r=>monthKey(r["Awal pelaporan"])===activeMonth);
   const pesananMonth=pesananData.filter(r=>monthKey(dateOnly(r["Waktu Pemesanan"]))===activeMonth);
   const clicksMonth=clicksData.filter(r=>monthKey(dateOnly(r["Waktu Klik"]))===activeMonth);
@@ -583,11 +598,11 @@ export default function App() {
     const news=pasteResult.filter(p=>!existing.has(p.id));
     if(!news.length){showToast("Semua sudah tersimpan.","warn");return;}
     const next=[...news,...payouts].sort((a,b)=>b.terbitDate.localeCompare(a.terbitDate));
-    setPayouts(next);await dataSet(dataKey("payouts"),next);
+    setPayouts(next);setDebtPayoutsByAccount(prev=>({...prev,[activeAccount.id]:next}));await dataSet(dataKey("payouts"),next);
     setPasteText("");setPasteResult(null);
     showToast(`✅ ${news.length} laporan disimpan!`);
   };
-  const deletePayout=async(id)=>{const next=payouts.filter(p=>p.id!==id);setPayouts(next);await dataSet(dataKey("payouts"),next);showToast("Dihapus","warn");};
+  const deletePayout=async(id)=>{const next=payouts.filter(p=>p.id!==id);setPayouts(next);setDebtPayoutsByAccount(prev=>({...prev,[activeAccount.id]:next}));await dataSet(dataKey("payouts"),next);showToast("Dihapus","warn");};
   const saveTagMappings=async(newMappings)=>{
     setTagMappings(newMappings);
     await dataSet(dataKey("tagMappings"),[newMappings]);
@@ -596,7 +611,7 @@ export default function App() {
   const addExtraDebtFn=async()=>{
     const amt=parseFloat(extraAmt);if(!amt||amt<=0){showToast("Masukkan jumlah!","warn");return;}
     const next=[...extraDebt,{id:Date.now().toString(),date:new Date().toISOString().substring(0,10),amount:amt,note:extraNote}];
-    setExtraDebt(next);await dataSet(dataKey("extraDebt"),next);setExtraAmt("");setExtraNote("");showToast("✅ Cicilan dicatat!");
+    setExtraDebt(next);await dataSet("extraDebt",next);setExtraAmt("");setExtraNote("");showToast("✅ Cicilan dicatat!");
   };
 
   const DATE_FILTERS=[{k:"today",l:"Hari Ini"},{k:"yesterday",l:"Kemarin"},{k:"7d",l:"7 Hari"},{k:"30d",l:"30 Hari"},{k:"range",l:"📅 Pilih Range"},{k:"all",l:"Semua"}];
@@ -616,7 +631,6 @@ export default function App() {
               {ACCOUNTS.map(a=><option key={a.id} value={a.id}>{a.label}</option>)}
             </select>
             {(loading||clicksLoading)&&<span className="sync-badge">{loading?"Memuat...":"Memuat klik..."}</span>}
-            <div className="hdr-stat"><div className="hl">Komisi Kotor</div><div className="hv" style={{color:"var(--green)"}}>{fmtRp(pesananData.reduce((s,r)=>s+parseNum(r["Komisi Bersih Affiliate (Rp)"]),0))}</div></div>
           </div>
         </div>
       </header>
@@ -627,11 +641,11 @@ export default function App() {
         {tab==="dashboard" && <>
           {/* Filter bar */}
           <div className="dash-filter">
-            <div className="dash-filter-title">Ringkasan Performa</div>
+            <div className="dash-filter-title">Ringkasan Performa {activeMonth?monthLabel(activeMonth):""}</div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-              <div className="filter-pills">
-                {DATE_FILTERS.map(f=><button key={f.k} className={`fp ${dateFilter===f.k?"active":""}`} onClick={()=>setDateFilter(f.k)}>{f.l}</button>)}
-              </div>
+              <select className="plat-select" value={activeMonth} onChange={e=>setSelectedMonth(e.target.value)}>
+                {allMonths.length===0?<option value="">Belum ada bulan</option>:allMonths.map(m=><option key={m} value={m}>{monthLabel(m)}</option>)}
+              </select>
               {dateFilter==="range" && (
                 <div style={{display:"flex",alignItems:"center",gap:6,background:"var(--surface)",border:"1px solid var(--border)",borderRadius:99,padding:"4px 12px"}}>
                   <input type="date" value={dateFrom} max={dateTo||today()}
@@ -773,13 +787,17 @@ export default function App() {
 
         {/* ══ UPLOAD CSV ══ */}
         {tab==="upload" && <>
+          <div className="card">
+            <div className="ct">Bulan Data</div>
+            <div className="month-sel">{allMonths.length===0?<p style={{fontSize:".8rem",color:"var(--text3)"}}>Belum ada data.</p>:allMonths.map(m=><button key={m} className={`mb ${m===activeMonth?"active":""}`} onClick={()=>setSelectedMonth(m)}>{monthLabel(m)}</button>)}</div>
+          </div>
           {[
             {key:"meta",title:"📈 Data Meta Ads",icon:"📈",sub:"Export dari Facebook Ads Manager • Breakdown by Day",data:metaData,setData:setMetaData,status:usMeta,setStatus:setUsMeta,handler:handleMeta,label:"Meta Ads",dateKey:"Awal pelaporan"},
             {key:"pesanan",title:"🧾 Laporan Pesanan Affiliate",icon:"🧾",sub:"AffiliateCommissionReport dari Shopee Affiliate",data:pesananData,setData:setPesananData,status:usPesanan,setStatus:setUsPesanan,handler:handlePesanan,label:"Pesanan",dateKey:"Waktu Pemesanan"},
             {key:"clicks",title:"🖱️ Shopee Clicks",icon:"🖱️",sub:"WebsiteClickReport dari Shopee Affiliate",data:clicksData,setData:setClicksData,status:usClicks,setStatus:setUsClicks,handler:handleClicks,label:"Clicks",dateKey:"Waktu Klik"},
           ].map(item=>{
             // Get unique dates for this data
-            const itemDays=[...new Set(item.data.map(r=>dateOnly(r[item.dateKey])).filter(Boolean))].sort().reverse();
+            const itemDays=[...new Set(item.data.map(r=>dateOnly(r[item.dateKey])).filter(d=>d&&monthMatches(d)))].sort().reverse();
             const countByDay=itemDays.reduce((acc,d)=>{acc[d]=item.data.filter(r=>dateOnly(r[item.dateKey])===d).length;return acc;},{});
             return (
               <div className="card" key={item.key}>
@@ -837,17 +855,21 @@ export default function App() {
         {/* ══ PER HARI ══ */}
         {tab==="perhari" && (()=>{
           const phMetaByDay={};
-          metaData.forEach(r=>{const d=dateOnly(r["Awal pelaporan"]);if(!d)return;if(!phMetaByDay[d])phMetaByDay[d]={spend:0,clicks:0};phMetaByDay[d].spend+=parseNum(r["Jumlah yang dibelanjakan (IDR)"]);
+          metaData.filter(r=>monthMatches(r["Awal pelaporan"])).forEach(r=>{const d=dateOnly(r["Awal pelaporan"]);if(!d)return;if(!phMetaByDay[d])phMetaByDay[d]={spend:0,clicks:0};phMetaByDay[d].spend+=parseNum(r["Jumlah yang dibelanjakan (IDR)"]);
             const kl=parseNum(r["Klik tautan"]);
             if(kl>0)phMetaByDay[d].clicks+=kl;
             else{const ct=parseNum(r["CTR (rasio klik tayang tautan)"]);const im=parseNum(r["Impresi"]);if(ct>0&&im>0)phMetaByDay[d].clicks+=Math.round(ct/100*im);}
           });
           const phPesananByDay={};
-          pesananData.forEach(r=>{const d=dateOnly(r["Waktu Pemesanan"]);if(!d)return;if(!phPesananByDay[d])phPesananByDay[d]={komisi:0,count:0};phPesananByDay[d].komisi+=parseNum(r["Komisi Bersih Affiliate (Rp)"]);phPesananByDay[d].count++;});
+          pesananData.filter(r=>monthMatches(r["Waktu Pemesanan"])).forEach(r=>{const d=dateOnly(r["Waktu Pemesanan"]);if(!d)return;if(!phPesananByDay[d])phPesananByDay[d]={komisi:0,count:0};phPesananByDay[d].komisi+=parseNum(r["Komisi Bersih Affiliate (Rp)"]);phPesananByDay[d].count++;});
           const phClicksByDay={};
-          clicksData.forEach(r=>{const d=dateOnly(r["Waktu Klik"]);if(!d)return;phClicksByDay[d]=(phClicksByDay[d]||0)+1;});
+          clicksData.filter(r=>monthMatches(r["Waktu Klik"])).forEach(r=>{const d=dateOnly(r["Waktu Klik"]);if(!d)return;phClicksByDay[d]=(phClicksByDay[d]||0)+1;});
           const phAllDays=[...new Set([...Object.keys(phMetaByDay),...Object.keys(phPesananByDay),...Object.keys(phClicksByDay)])].sort().reverse();
           return <>
+          <div className="card">
+            <div className="ct">Bulan Data</div>
+            <div className="month-sel">{allMonths.length===0?<p style={{fontSize:".8rem",color:"var(--text3)"}}>Belum ada data.</p>:allMonths.map(m=><button key={m} className={`mb ${m===activeMonth?"active":""}`} onClick={()=>setSelectedMonth(m)}>{monthLabel(m)}</button>)}</div>
+          </div>
           <div className="card">
             <div className="ct">Ringkasan Harian — Semua Data</div>
             {phAllDays.length===0?<div className="empty"><div className="icon">📆</div><p>Upload CSV untuk melihat data per hari.</p></div>:
@@ -894,16 +916,16 @@ export default function App() {
 
         {/* ══ TAG PERFORMA ══ */}
         {tab==="tagperforma" && (()=>{
-          const allTagsList=[...new Set(pesananData.map(r=>cleanTag(getRowTag(r))).filter(Boolean))].sort();
-          const allCampaigns=[...new Set(metaData.map(r=>r["Nama kampanye"]).filter(Boolean))].sort();
+          const allTagsList=[...new Set(pesananData.filter(r=>monthMatches(r["Waktu Pemesanan"])).map(r=>cleanTag(getRowTag(r))).filter(Boolean))].sort();
+          const allCampaigns=[...new Set(metaData.filter(r=>monthMatches(r["Awal pelaporan"])).map(r=>r["Nama kampanye"]).filter(Boolean))].sort();
           const activeTags=selectedTags.length>0?selectedTags:[];
 
           const computeTagStats=(tag)=>{
-            const tagPesanan=pesananData.filter(r=>sameTag(getRowTag(r),tag));
-            const tagClicks=clicksData.filter(r=>sameTag(getRowTag(r),tag));
+            const tagPesanan=pesananData.filter(r=>monthMatches(r["Waktu Pemesanan"])&&sameTag(getRowTag(r),tag));
+            const tagClicks=clicksData.filter(r=>monthMatches(r["Waktu Klik"])&&sameTag(getRowTag(r),tag));
             const mappingKey=Object.keys(tagMappings).find(k=>sameTag(k,tag))||tag;
             const linkedCampaigns=tagMappings[mappingKey]||[];
-            const tagMeta=metaData.filter(r=>linkedCampaigns.includes(r["Nama kampanye"]));
+            const tagMeta=metaData.filter(r=>monthMatches(r["Awal pelaporan"])&&linkedCampaigns.includes(r["Nama kampanye"]));
             const spend=tagMeta.reduce((s,r)=>s+parseNum(r["Jumlah yang dibelanjakan (IDR)"]),0);
             let metaClicks=0;
             tagMeta.forEach(r=>{const kl=parseNum(r["Klik tautan"]);if(kl>0)metaClicks+=kl;else{const ct=parseNum(r["CTR (rasio klik tayang tautan)"]);const im=parseNum(r["Impresi"]);if(ct>0&&im>0)metaClicks+=Math.round(ct/100*im);}});
@@ -945,6 +967,8 @@ export default function App() {
           return <>
             {/* Tag selector card */}
             <div className="card">
+              <div className="ct">Bulan Data</div>
+              <div className="month-sel" style={{marginBottom:12}}>{allMonths.length===0?<p style={{fontSize:".8rem",color:"var(--text3)"}}>Belum ada data.</p>:allMonths.map(m=><button key={m} className={`mb ${m===activeMonth?"active":""}`} onClick={()=>setSelectedMonth(m)}>{monthLabel(m)}</button>)}</div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
                 <div className="ct" style={{marginBottom:0}}>🏷️ Pilih Tag untuk Dievaluasi</div>
                 <span className="badge bg-orange">{allTagsList.length} tag tersedia</span>
