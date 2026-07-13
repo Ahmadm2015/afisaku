@@ -275,7 +275,25 @@ code{background:var(--surface2);padding:1px 6px;border-radius:4px;font-family:'D
 .sum-table td{padding:9px 0;border-bottom:1px solid var(--border);font-size:.82rem;}
 .sum-table tr:last-child td{border-bottom:none;}
 .sum-table .num{font-family:'DM Mono',monospace;font-weight:700;text-align:right;}
-@media(max-width:500px){.metric-grid{grid-template-columns:1fr 1fr;}.pnl-row{grid-template-columns:1fr 1fr;}.r2{grid-template-columns:1fr;}}
+@media(max-width:600px){
+  header{padding:8px 12px;}
+  .hdr{height:auto;min-height:44px;gap:8px;}
+  .logo{gap:8px;min-width:0;}
+  .logo-mark{width:30px;height:30px;border-radius:8px;font-size:15px;}
+  .logo h1{font-size:.95rem;line-height:1;}
+  .logo span{display:none;}
+  .hdr-right{gap:8px;min-width:0;}
+  .acct-select{max-width:142px;padding:7px 8px;font-size:.72rem;}
+  .hdr-stat .hl{display:none;}
+  .hdr-stat .hv{font-size:.82rem;line-height:1.05;white-space:nowrap;}
+  .sync-badge{display:none;}
+  nav{padding:0 12px;}
+  .nb{padding:12px 12px 10px;font-size:.76rem;}
+  main{padding:16px 12px;}
+  .metric-grid{grid-template-columns:1fr 1fr;}
+  .pnl-row{grid-template-columns:1fr 1fr;}
+  .r2{grid-template-columns:1fr;}
+}
 `;
 
 // ── SMALL COMPONENTS ─────────────────────────────────────────────
@@ -582,7 +600,7 @@ export default function App() {
   };
 
   const DATE_FILTERS=[{k:"today",l:"Hari Ini"},{k:"yesterday",l:"Kemarin"},{k:"7d",l:"7 Hari"},{k:"30d",l:"30 Hari"},{k:"range",l:"📅 Pilih Range"},{k:"all",l:"Semua"}];
-  const TABS=[{id:"dashboard",label:"📊 Dashboard"},{id:"pembayaran",label:"💰 Lap. Pembayaran"},{id:"upload",label:"📂 Upload CSV"},{id:"perhari",label:"📆 Per Hari"},{id:"tagperforma",label:"🏷️ Tag Performa"},{id:"pesanan",label:"🧾 Pesanan"},{id:"kampanye",label:"📣 Kampanye"},{id:"monthly",label:"📅 Bulanan"},{id:"debt",label:"💳 Hutang"}];
+  const TABS=[{id:"dashboard",label:"📊 Dashboard"},{id:"pembayaran",label:"💰 Lap. Pembayaran"},{id:"upload",label:"📂 Upload CSV"},{id:"perhari",label:"📆 Per Hari"},{id:"tagperforma",label:"🏷️ Tag Performa"},{id:"pesanan",label:"🧾 Pesanan"},{id:"selesai",label:"✅ Pesanan Selesai"},{id:"monthly",label:"📅 Bulanan"},{id:"debt",label:"💳 Hutang"}];
 
   return (
     <div className="app">
@@ -599,7 +617,6 @@ export default function App() {
             </select>
             {(loading||clicksLoading)&&<span className="sync-badge">{loading?"Memuat...":"Memuat klik..."}</span>}
             <div className="hdr-stat"><div className="hl">Komisi Kotor</div><div className="hv" style={{color:"var(--green)"}}>{fmtRp(pesananData.reduce((s,r)=>s+parseNum(r["Komisi Bersih Affiliate (Rp)"]),0))}</div></div>
-            <div className="hdr-stat"><div className="hl">Sisa Hutang</div><div className="hv" style={{color:"var(--accent)"}}>{fmtRpFull(debtLeft)}</div></div>
           </div>
         </div>
       </header>
@@ -1131,6 +1148,59 @@ export default function App() {
             </table></div>}
           </div>
         </>}
+
+        {/* ══ PESANAN SELESAI ══ */}
+        {tab==="selesai" && (() => {
+          const selesaiRows=pesananData.filter(r=>r["Status Pesanan"]==="Selesai");
+          const selesaiKomisi=selesaiRows.reduce((s,r)=>s+parseNum(r["Komisi Bersih Affiliate (Rp)"]),0);
+          const selesaiNilaiBeli=selesaiRows.reduce((s,r)=>s+parseNum(r["Nilai Pembelian(Rp)"]),0);
+          const selesaiProfit=selesaiKomisi-totalSpend;
+          const selesaiRoas=totalSpend>0?(selesaiKomisi/totalSpend).toFixed(2):null;
+          const selesaiByDay={};
+          selesaiRows.forEach(r=>{
+            const d=dateOnly(r["Waktu Pemesanan"]);if(!d)return;
+            if(!selesaiByDay[d])selesaiByDay[d]={count:0,komisi:0,nilai:0};
+            selesaiByDay[d].count++;
+            selesaiByDay[d].komisi+=parseNum(r["Komisi Bersih Affiliate (Rp)"]);
+            selesaiByDay[d].nilai+=parseNum(r["Nilai Pembelian(Rp)"]);
+          });
+          const selesaiDays=Object.entries(selesaiByDay).sort((a,b)=>b[0].localeCompare(a[0]));
+          return <>
+            <div className="dash-filter">
+              <div className="dash-filter-title">Laporan Pesanan Selesai</div>
+            </div>
+            <div className="metric-grid">
+              <MetricCard icon="✅" iconBg="green" label="Pesanan Selesai" value={selesaiRows.length.toLocaleString("id-ID")} valueColor="green" sub={`${pesananData.length.toLocaleString("id-ID")} total pesanan`} accent="green"/>
+              <MetricCard icon="💰" iconBg="green" label="Komisi Valid" value={fmtRp(selesaiKomisi)} valueColor="green" sub="Status Shopee: Selesai" accent="green"/>
+              <MetricCard icon="📈" iconBg="red" label="Ad Spend Meta" value={fmtRp(totalSpend)} valueColor="red" sub={`${[...new Set(filtMeta.map(r=>r["Nama kampanye"]))].filter(Boolean).length} kampanye`} accent="red"/>
+              <MetricCard icon="🎯" iconBg={selesaiProfit>=0?"green":"red"} label="Profit Valid Est." value={fmtRp(selesaiProfit)} valueColor={selesaiProfit>=0?"green":"red"} sub={selesaiRoas?`ROAS selesai ${selesaiRoas}x`:"Menunggu spend"} accent={selesaiProfit>=0?"green":"red"}/>
+            </div>
+            <div className="card" style={{borderColor:"#bbf7d0"}}>
+              <div className="ct">Ringkasan Validasi</div>
+              <table className="sum-table">
+                <tbody>
+                  <tr><td>Komisi dari pesanan selesai</td><td className="num" style={{color:"var(--green)"}}>{fmtRpFull(selesaiKomisi)}</td></tr>
+                  <tr><td>Total nilai beli selesai</td><td className="num">{fmtRpFull(selesaiNilaiBeli)}</td></tr>
+                  <tr><td>Ad spend periode aktif</td><td className="num" style={{color:"var(--red)"}}>{fmtRpFull(totalSpend)}</td></tr>
+                  <tr><td>Estimasi profit valid</td><td className="num" style={{color:selesaiProfit>=0?"var(--green)":"var(--red)"}}>{fmtRpFull(selesaiProfit)}</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div className="card">
+              <div className="ct">Pesanan Selesai per Tanggal</div>
+              {selesaiDays.length===0?<div className="empty"><div className="icon">✅</div><p>Belum ada pesanan berstatus Selesai.</p></div>:
+              <div className="table-wrap"><table className="dt">
+                <thead><tr><th>Tanggal</th><th>Pesanan Selesai</th><th>Nilai Beli</th><th>Komisi Valid</th></tr></thead>
+                <tbody>{selesaiDays.map(([d,v])=><tr key={d}>
+                  <td style={{fontWeight:700,whiteSpace:"nowrap"}}>{fmtDate(d)}</td>
+                  <td className="num">{v.count.toLocaleString("id-ID")}</td>
+                  <td className="num">{fmtRpFull(v.nilai)}</td>
+                  <td className="num" style={{color:"var(--green)"}}>{fmtRpFull(v.komisi)}</td>
+                </tr>)}</tbody>
+              </table></div>}
+            </div>
+          </>;
+        })()}
 
         {/* ══ KAMPANYE ══ */}
         {tab==="kampanye" && <>
